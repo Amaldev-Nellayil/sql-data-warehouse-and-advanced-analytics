@@ -28,3 +28,11 @@ Develop SQL-based analytics tool to deliver insights into:
 - **Sales Trends**
 
 These insights empower stakeholders with key business metrics, enabling strategic decision-making.
+
+---
+
+## License
+This project is licensed under the [MIT License](LICENSE). You are free to use, modify, and share this project with proper attribution.
+
+## About me
+I'm Amal. I started my career as an Electrical & Automation Engineering in manufacturing and I'm now trying to pursue my growing interests in Supply Chain Management, Analytics, Technical/Program Management, Optimization, Technology, and Operational Research Analytics.
