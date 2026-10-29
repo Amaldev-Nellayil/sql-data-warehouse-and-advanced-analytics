@@ -4,7 +4,7 @@
 
 **An end-to-end SQL data warehouse integrating CRM and ERP data into a business-ready analytical model.**
 
-This project implements a three-layer **Medallion Architecture** using **PostgreSQL, SQL, and PL/pgSQL**. Six CRM and ERP CSV datasets are loaded into the **Bronze** layer, cleansed and standardized in **Silver**, and integrated into a **Gold** star schema. The repository includes database definitions, repeatable ETL procedures, data quality checks, architecture diagrams, and a Gold-layer data dictionary.
+This project implements a three-layer **Medallion Architecture** using **PostgreSQL, SQL, and PL/pgSQL**. Six CRM and ERP CSV datasets are loaded into the **Bronze** layer, cleansed and standardized in **Silver**, and integrated into a **Gold** star schema. The repository includes database definitions, repeatable ETL procedures, data quality checks, architecture diagrams, a Gold-layer data dictionary, and six SQL analytical reporting views covering customer behavior, product performance, and sales trends.
 
 The project follows the architecture and development framework in Mr.Baraa Khatib Salkini's SQL course. While the reference implementation uses Microsoft SQL Server, this implementation uses PostgreSQL-specific SQL and PL/pgSQL for data ingestion, procedures, transformations, exception handling, and execution monitoring.
 
@@ -18,13 +18,14 @@ The project follows the architecture and development framework in Mr.Baraa Khati
 6. [ETL Pipeline and Data Transformations](#etl-pipeline-and-data-transformations)
 7. [CRM and ERP Data Integration](#crm-and-erp-data-integration)
 8. [Gold Layer: Star Schema](#gold-layer-star-schema)
-9. [Data Quality and Validation](#data-quality-and-validation)
-10. [Repository Structure](#repository-structure)
-11. [Getting Started](#getting-started)
-12. [Development Approach and Conventions](#development-approach-and-conventions)
-13. [Scope, Limitations, and Next Steps](#scope-limitations-and-next-steps)
-14. [Acknowledgments](#acknowledgments)
-15. [License](#license)
+9. [Gold Layer: SQL Analytics and Reporting](#gold-layer-sql-analytics-and-reporting)
+10. [Data Quality and Validation](#data-quality-and-validation)
+11. [Repository Structure](#repository-structure)
+12. [Getting Started](#getting-started)
+13. [Development Approach and Conventions](#development-approach-and-conventions)
+14. [Scope, Limitations, and Next Steps](#scope-limitations-and-next-steps)
+15. [Acknowledgments](#acknowledgments)
+16. [License](#license)
 
 ---
 
@@ -41,7 +42,8 @@ The project follows the architecture and development framework in Mr.Baraa Khati
 | **ETL** | Full-refresh procedures with progress messages, error handling, and timing |
 | **Transformations** | Deduplication, standardization, date conversion, enrichment, and derived fields |
 | **Modeling** | Star schema: two dimension views and one sales fact view |
-| **Validation** | Silver data-quality checks and Gold integration checks |
+| **SQL analytics** | Six Gold-layer report views for customer behavior, product performance, and sales trends |
+| **Validation** | Silver, Gold integration, and analytical report validation queries |
 | **Documentation** | Gold data dictionary and editable draw.io architecture diagrams |
 
 ## Business Objective and Requirements
@@ -54,8 +56,9 @@ The implementation addresses four requirements:
 2. **Data preparation:** handle duplicate records, inconsistent values, missing information, invalid dates, and other data-quality issues.
 3. **Source integration:** standardize identifiers and connect related CRM and ERP customer and product data.
 4. **Analytical modeling:** publish business-friendly dimensions and sales measures through a star schema.
+5. **SQL reporting:** develop reusable customer, product, and sales analytics views for business KPI reporting.
 
-**Current deliverable:** the SQL data warehouse, its validation queries, and supporting documentation. Exploratory analytics, dashboards, and business insights are prospective downstream extensions—not completed results claimed by this repository.
+**Current deliverable:** the SQL data warehouse, six analytical reporting views, validation queries, and supporting documentation. The SQL reports provide descriptive KPIs, segmentation, and sales trend calculations. Interactive dashboards and a separate narrative of business findings remain future extensions.
 
 ## Technology Stack
 
@@ -83,6 +86,7 @@ The reference project was developed for SQL Server. The corresponding PostgreSQL
 - `LEAD()` and date arithmetic to derive product effective-date ranges.
 - `TO_DATE()`, `CASE`, `COALESCE()`, `TRIM()`, `UPPER()`, `SUBSTRING()`, and `REPLACE()` for cleaning and standardization.
 - PostgreSQL **views** to expose the Gold-layer dimensions and fact without separately loading physical Gold tables.
+- `DATE_TRUNC()`, `LAG()`, window aggregates, `DENSE_RANK()`, and window frames for trend analysis, moving averages, and revenue-based segmentation.
 
 These choices implement the course's warehouse design in PostgreSQL rather than reproducing SQL Server/T-SQL code verbatim.
 
@@ -324,6 +328,44 @@ This illustrates the intended use of the Gold layer; it is **not** a claim of co
 
 ---
 
+## Gold Layer: SQL Analytics and Reporting
+
+Building on the Gold star schema, the project includes **six SQL reporting views** that summarize customer behavior, product performance, and historical sales. These views are defined in [`scripts/gold/`](scripts/gold/) alongside the underlying dimension and fact views. They calculate results from the warehouse when queried rather than storing separate reporting tables.
+
+| View | Report granularity | Analytical purpose |
+|---|---|---|
+| [`gold.report_customers`](scripts/gold/report_customers.sql) | One row per customer | Purchasing history, customer value, recency, and customer segmentation |
+| [`gold.report_products`](scripts/gold/report_products.sql) | One row per product | Product revenue, customer reach, selling history, and revenue-based performance segments |
+| [`gold.report_sales_monthly`](scripts/gold/report_sales_monthly.sql) | One row per year-month | Monthly performance, MoM/YoY growth, cumulative revenue, and moving average |
+| [`gold.report_sales_seasonality`](scripts/gold/report_sales_seasonality.sql) | One row per calendar month | Average, minimum, and maximum monthly performance across observed years |
+| [`gold.report_sales_geography`](scripts/gold/report_sales_geography.sql) | One row per customer country | Geographic sales contribution, average order value, and revenue ranking |
+| [`gold.report_sales_category`](scripts/gold/report_sales_category.sql) | One row per product category | Category sales contribution, purchasing activity, and revenue ranking |
+
+### Customer Behavior
+
+The customer report begins with `gold.dim_customers` and `LEFT JOIN`s `gold.fact_sales` so customers **without any recorded purchases** remain visible. It reports unique orders, sales, quantities, distinct matched products, first/last purchase dates, lifespan, recency, average order value, and average monthly spend.
+
+Customers are classified using illustrative reporting rules: **No Purchases** for zero orders, **VIP** for a purchasing lifespan of at least 12 completed months and revenue above 5,000, **Regular** for a lifespan of at least 12 months and revenue at or below 5,000, and **New** otherwise. Here, *New* describes a short observed purchase history, not necessarily a recently registered customer. Undefined purchase averages are `NULL` for customers without orders.
+
+### Product Performance
+
+The product report begins with `gold.dim_products` and `LEFT JOIN`s sales, including products with zero recorded sales. It calculates order count, revenue, units, unique buyers, first/last sale dates, selling lifespan, recency, average order revenue, and average monthly revenue.
+
+Revenue-based **High-Performing / Mid-Performing / Low-Performing** segments use an ABC/Pareto-style approach: the first approximately 80% of cumulative revenue, the next 15%, and the remainder. Products are assigned by revenue accumulated **before** their revenue group begins; tied-revenue products are kept together where the `groups` window frame is used. Zero-sales products are Low-Performing. These segments measure **revenue contribution, not profit**.
+
+### Sales Performance and Trends
+
+- **Monthly:** aggregates dated transactions by year-month, uses `lag()` to compare prior month and prior-year revenue, calculates growth percentages, a cumulative revenue total, and a rolling three-row average.
+- **Seasonality:** groups the monthly results by calendar month to compare observed average revenue, order volume, quantity, and minimum/maximum revenue across years.
+- **Geography:** starts with sales and joins customer country, retaining unmatched or missing geography under `Unknown`.
+- **Category:** starts with sales and joins product category, retaining unmatched or missing classifications under `Unknown`.
+
+**Reporting conventions and limitations:** Recency is measured against the latest recorded sale in the dataset. Growth comparisons based on `lag(1)` and `lag(12)` assume consecutive monthly observations; missing months or partial periods can distort comparisons. Seasonality averages use observed months only. Geographic and category revenue-share percentages may sum to slightly above or below 100% because of rounding. Orders with items in multiple product categories are counted in each relevant category, so category-level distinct order counts are **not additive**.
+
+These reports provide reusable SQL analytical outputs and can serve as inputs to a future Power BI dashboard; a Power BI dashboard is not part of the current implementation.
+
+---
+
 ## Data Quality and Validation
 
 Quality checks were carried out as the Bronze-to-Silver transformations and Gold integration logic were developed. SQL checks are collected under [`tests/`](tests/).
@@ -349,6 +391,10 @@ Quality checks were carried out as the Bronze-to-Silver transformations and Gold
 - Unexpected fact-row multiplication following dimension joins.
 - Row-count comparisons between Silver sales and Gold sales.
 - Completeness and consistency of analytical measures.
+
+### Analytical Report Checks
+
+The [`tests/quality_checks_analytics.sql`](tests/quality_checks_analytics.sql) script contains checks for reporting completeness, expected customer/product granularity, zero-purchase and zero-sales handling, segmentation rules, monthly date coverage, revenue reconciliation, growth calculations, and geographic/category contributions. Reconciliation checks compare report totals with the applicable transaction population in `gold.fact_sales`; diagnostic checks may require interpretation rather than expecting an empty result.
 
 Some queries are exploratory and return values for inspection; others are exception checks intended to return **no rows** when their rules are met. A non-empty query result should be interpreted against the corresponding business rule rather than automatically classified as a pipeline failure.
 
@@ -391,11 +437,18 @@ sql-data-warehouse-project/
 │   │   └── proc_load_silver.sql        # Cleansing and transformation procedure
 │   │
 │   └── gold/
-│       └── ddl_gold.sql                # Dimension and fact views
+│       ├── ddl_gold.sql                # Dimension and fact views
+│       ├── report_customers.sql        # Customer behavior reporting view
+│       ├── report_products.sql         # Product performance reporting view
+│       ├── report_sales_monthly.sql    # Monthly performance and growth
+│       ├── report_sales_seasonality.sql # Calendar-month seasonality
+│       ├── report_sales_geography.sql  # Geographic revenue analysis
+│       └── report_sales_category.sql   # Product-category revenue analysis
 │
 ├── tests/                              # Data quality validation
 │   ├── quality_checks_silver.sql
-│   └── quality_checks_gold.sql
+│   ├── quality_checks_gold.sql
+│   └── quality_checks_analytics.sql
 │
 ├── .gitignore
 ├── LICENSE
@@ -453,11 +506,11 @@ CALL silver.load_silver();
 
 ### 6. Create the Gold Views
 
-Run the SQL definitions in [`scripts/gold/`](scripts/gold/), creating the two dimension views before the sales fact view if executing them individually.
+Run the SQL definitions in [`scripts/gold/`](scripts/gold/), creating the two dimension views before the sales fact view if executing them individually. Then execute the six `report_*.sql` scripts to create the analytical views. The reporting views depend on the Gold dimensions and/or fact view.
 
 ### 7. Run Data Quality Checks
 
-Execute the appropriate SQL in [`tests/`](tests/) and review results against the documented expectations.
+Execute the appropriate SQL in [`tests/`](tests/), including `quality_checks_analytics.sql` after creating the reports, and review results against the documented expectations.
 
 > **Warning:** Bronze and Silver procedures perform **full refreshes** using `TRUNCATE`. They replace existing data in their target tables and should be run on a dedicated project database.
 
@@ -477,13 +530,14 @@ The development workflow was:
 6. Explore the source tables, investigate identifier relationships, and document the data integration map.
 7. Develop Silver transformations with corresponding validation queries.
 8. Model Gold dimensions and facts, create the views, and document the data catalog.
+9. Build six Gold-layer customer, product, and sales reporting views, then add report-level validation queries.
 
 ### Naming Conventions
 
 - Use lowercase `snake_case` and descriptive English object names.
 - Avoid SQL reserved words in database objects.
 - **Bronze/Silver:** use source-prefixed object names such as `crm_cust_info` and `erp_loc_a101`.
-- **Gold:** use modeling-role prefixes such as `dim_customers`, `dim_products`, and `fact_sales`.
+- **Gold:** use modeling-role prefixes such as `dim_customers`, `dim_products`, and `fact_sales`, with `report_` prefixes for analytical reporting views.
 
 The [`docs/`](docs/) folder contains the editable `.drawio` sources alongside image exports, so the architecture diagrams can be reviewed and updated without recreating them from screenshots.
 
@@ -499,7 +553,8 @@ The [`docs/`](docs/) folder contains the editable `.drawio` sources alongside im
 - SQL-based cleansing, normalization, and enrichment.
 - Error handling and load-duration reporting.
 - Customer/product integration and Gold star-schema views.
-- Silver and Gold quality-check queries.
+- Silver, Gold, and analytical report quality-check queries.
+- Six Gold-layer SQL reports covering customer behavior, product performance, monthly sales, seasonality, geography, and product categories.
 - Data dictionary and architecture/model diagrams.
 
 ### Current Limitations
@@ -513,8 +568,8 @@ The [`docs/`](docs/) folder contains the editable `.drawio` sources alongside im
 
 ### Potential Extensions
 
-- SQL-based exploratory analysis of customer, product, and sales trends.
-- Business KPI reporting and visualization.
+- Further exploratory analysis and interpretation of customer, product, and sales findings.
+- Interactive Power BI dashboards and visualization of the existing SQL KPIs.
 - Query plan inspection, indexing, and performance optimization.
 - Persistent ETL run logs and automated quality reporting.
 - Incremental updates and scheduled execution.
